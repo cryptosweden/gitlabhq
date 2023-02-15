@@ -21,7 +21,7 @@ require (
 	github.com/johannesboyne/gofakes3 v0.0.0-20200510090907-02d71f533bec
 	github.com/jpillora/backoff v1.0.0
 	github.com/mitchellh/copystructure v1.0.0
-	github.com/prometheus/client_golang v1.10.0
+	github.com/prometheus/client_golang v1.11.1
 	github.com/rafaeljusto/redigomock v0.0.0-20190202135759-257e089e14a1
 	github.com/sebest/xff v0.0.0-20210106013422-671bd2870b3a
 	github.com/shabbyrobe/gocovmerge v0.0.0-20190829150210-3e036491d500 // indirect
